@@ -69,6 +69,11 @@
     min-width: 900px;
   }
 }
+thead th:first-child,
+tbody td:first-child{
+  text-align: center;
+  font-weight: bold;
+}
 
     </style>
   </head>
@@ -128,7 +133,9 @@
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>🚛 Transportadora </th>
+            <tr>
+              <th>#</th>
+              <th>🚛 Transportadora </th>
               <th>🧑🏼‍✈️ Conductor</th>
               <th>🪪 Cédula</th>
               <th>⛔ Placa</th>
@@ -136,7 +143,7 @@
               <th>📦 Producto</th>
               <th>📅 Fecha Planificada de Cargue</th></tr>
           </thead>
-          <tbody id="tablaBody"><tr><td colspan="7" class="empty">Cargando datos...</td></tr></tbody>
+          <tbody id="tablaBody"><tr><td colspan="8" class="empty">Cargando datos...</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -197,7 +204,36 @@
 }
 
 
-      function renderTabla(datos){ tablaBody.innerHTML=''; if(!datos.length){ tablaBody.innerHTML='<tr><td colspan="9" class="empty">No hay datos</td></tr>'; filtradosEl.textContent='0'; return;} datos.forEach(r=>{ const tr=document.createElement('tr'); const estado=(r.estado||'').toLowerCase(); const badge=estado==='cargando'?'<span class="status-cargando">Cargando</span>':(estado==='despachado'?'<span class="status-despachado">Despachado</span>':(r.estado||'')); tr.innerHTML=`<td>${r.transportadora||''}</td><td>${r.conductor||''}</td><td>${r.cedula||r['cédula']||''}</td><td>${r.placa||''}</td><td>${r.destino||''}</td><td>${r.producto||''}</td><td>${r.fecha||''}</td>`; tablaBody.appendChild(tr);} ); filtradosEl.textContent=datos.length; registrosEl.textContent=datosOriginales.length; }
+function renderTabla(datos){
+  tablaBody.innerHTML = '';
+
+  if(!datos.length){
+    tablaBody.innerHTML =
+      '<tr><td colspan="8" class="empty">No hay datos</td></tr>';
+    filtradosEl.textContent = '0';
+    return;
+  }
+
+  datos.forEach((r, index) => {
+    const tr = document.createElement('tr');
+
+    tr.innerHTML = `
+      <td>${index + 1}</td>
+      <td>${r.transportadora || ''}</td>
+      <td>${r.conductor || ''}</td>
+      <td>${r.cedula || r['cédula'] || ''}</td>
+      <td>${r.placa || ''}</td>
+      <td>${r.destino || ''}</td>
+      <td>${r.producto || ''}</td>
+      <td>${r.fecha || ''}</td>
+    `;
+
+    tablaBody.appendChild(tr);
+  });
+
+  filtradosEl.textContent = datos.length;
+  registrosEl.textContent = datosOriginales.length;
+}
 
       function aplicarFiltros(){
   const t = fTransport.value.trim().toLowerCase();
@@ -255,30 +291,32 @@
         return PROXY_TEMPLATES.map(t => t.replace('{url}', encodeURIComponent(URL_CSV)) + '&t=' + Date.now());
       }
 
-     function appendRows(rows){
-  rows.forEach(r=>{
+ function appendRows(rows){
+  rows.forEach((r, i) => {
     const tr = document.createElement('tr');
 
     tr.innerHTML = `
-      <td>${r.transportadora||''}</td>
-      <td>${r.conductor||''}</td>
-      <td>${r.cedula||r['cédula']||''}</td>
-      <td>${r.placa||''}</td>
-      <td>${r.destino||''}</td>
-      <td>${r.producto||''}</td>
-      <td>${r.fecha||''}</td>
+      <td>${tablaBody.children.length + 1}</td>
+      <td>${r.transportadora || ''}</td>
+      <td>${r.conductor || ''}</td>
+      <td>${r.cedula || r['cédula'] || ''}</td>
+      <td>${r.placa || ''}</td>
+      <td>${r.destino || ''}</td>
+      <td>${r.producto || ''}</td>
+      <td>${r.fecha || ''}</td>
     `;
 
     tr.classList.add('new-row');
     tablaBody.appendChild(tr);
 
-    setTimeout(()=> tr.classList.add('highlight'), 50);
-    setTimeout(()=> tr.classList.remove('highlight'), 3500);
+    setTimeout(() => tr.classList.add('highlight'), 50);
+    setTimeout(() => tr.classList.remove('highlight'), 3500);
   });
 
   registrosEl.textContent = datosOriginales.length;
   filtradosEl.textContent = datosOriginales.length;
 }
+
 function generarIDRegistro(r){
   return `${r.fecha}|${r.placa}|${r.transportadora}`.toLowerCase();
 }
@@ -416,4 +454,3 @@ setInterval(cargarDatos,5000);
     </script>
   </body>
 </html>
-
