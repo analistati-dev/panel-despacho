@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
   <head>
+    
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title> 🚛 Despacho</title>
@@ -46,19 +47,43 @@
       .status-despachado{background:#28a745;color:#fff;padding:4px 10px;border-radius:999px;font-weight:700}
       .empty{padding:26px;text-align:center;color:#777}
       @media(max-width:768px){.controls .row{grid-template-columns:1fr}.buttons{flex-direction:column}.btn{width:100%}}
-      table{ border-collapse:collapse; } thead th{ border:3px solid rgb(0, 0, 0); } tbody td{ border:3px solid #0b0a0a; }
-      @media (max-width: 600px){
-        body, .container{ height: auto !important; min-height: auto !important; }
-        .table-wrap{ flex: none !important; max-height: none !important; overflow-x: auto; overflow-y: visible; margin-bottom: 40px; }
-        table{ min-width: 900px; }
-      }
-      thead th:first-child, tbody td:first-child{ text-align: center; font-weight: bold; }
+    table{ border-collapse:collapse; } thead th{ border:3px solid rgb(0, 0, 0); } tbody td{ border:3px solid #0b0a0a; }
+    /* ===== FIX TABLA EN CELULAR ===== */
+@media (max-width: 600px){
+
+  body,
+  .container{
+    height: auto !important;
+    min-height: auto !important;
+  }
+
+  .table-wrap{
+    flex: none !important;
+    max-height: none !important;
+    overflow-x: auto;
+    overflow-y: visible;
+    margin-bottom: 40px;
+  }
+
+  table{
+    min-width: 900px;
+  }
+}
+thead th:first-child,
+tbody td:first-child{
+  text-align: center;
+  font-weight: bold;
+}
+
     </style>
   </head>
   <body>
     <div class="container">
       <header>
-       <h1 style="font-size:60px;">📦 SOLICITUD DE DESPACHO</h1>
+       <h1 style="font-size:60px;">
+       📦 SOLICITUD DE DESPACHO
+      </h1>
+          
       </header>
 
       <div class="dashboard">
@@ -76,17 +101,34 @@
           <input id="filterConductor" placeholder="Conductor">
           <input id="filterproducto" placeholder="Producto">
           <input id="filterFecha" type="date">
+          
         </div>
         <div class="buttons">
           <button id="btnFiltrar" class="btn primary">🔍 Aplicar filtros</button>
           <button id="btnLimpiar" class="btn warn">🔄 Limpiar</button>
           <button id="btnDescargarExcel" class="btn success">📊 Descargar Excel</button>
           <button id="btnActualizar" class="btn primary">🔁 Sincronizar ahora</button>
+         
           <label style="display:inline-flex;align-items:center;gap:8px;margin-left:8px;color:#222">
             <input type="checkbox" id="forceProxy"> 
           </label>
         </div>
       </div>
+
+      <div id="dashboardPanel" style="display:none;background:#ffffffb4;padding:16px;border-radius:10px;margin-bottom:16px;box-shadow:0 4px 12px rgba(0,0,0,.06)">
+
+
+  <div class="row" style="margin-bottom:12px">
+    <select id="dTransportadora"><option value="">Transportadora</option></select>
+    <select id="dConductor"><option value="">Conductor</option></select>
+    <select id="dProducto"><option value="">Producto</option></select>
+    <input type="date" id="dFecha">
+  </div>
+
+  <canvas id="chartTransportadora" height="120"></canvas>
+  <canvas id="chartConductor" height="120" style="margin-top:20px"></canvas>
+  <canvas id="chartProducto" height="120" style="margin-top:20px"></canvas>
+</div>
 
       <div class="table-wrap">
         <table>
@@ -106,12 +148,16 @@
           <tbody id="tablaBody"><tr><td colspan="10" class="empty">Cargando datos...</td></tr></tbody>
         </table>
       </div>
+
+      <!-- Modal para ver evidencia - DESHABILITADO, se abre en nueva pestaña -->
+      <!-- Código anterior removido: se usa window.open() en su lugar -->
     </div>
      
     <script>
-      const ADMIN_PASS = 'admin123';
-
       const URL_CSV = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTuMV8Hfu6NBC0w2vuWseAmTcU957vz_ZfYwluoop1BaDvs80SiuJFJYA2H8UFv0zAw8hbB5CqygIIO/pub?gid=651791819&single=true&output=csv';
+      let datosOriginales = [];
+      let registrosNotificados = new Set();
+
 
       const tablaBody = document.getElementById('tablaBody');
       const registrosEl = document.getElementById('registros');
@@ -124,112 +170,26 @@
       const fPlaca = document.getElementById('filterPlaca');
       const fConductor = document.getElementById('filterConductor');
       const fproducto = document.getElementById('filterproducto');
-      const fFecha = document.getElementById('filterFecha');
+      const fFecha=document.getElementById('filterFecha');
+      
 
       const btnFiltrar = document.getElementById('btnFiltrar');
       const btnLimpiar = document.getElementById('btnLimpiar');
+    
       const btnXLS = document.getElementById('btnDescargarExcel');
       const btnActualizar = document.getElementById('btnActualizar');
 
-      // NUEVA FUNCIÓN: Cargar datos del formulario de respuestas
-      async function cargarFormularioRespuestas(){
-        try{
-          const res = await fetch(URL_FORM_RESPUESTAS + '&t=' + Date.now(), { cache: 'no-store' });
-          if(!res.ok) {
-            console.warn('Formulario de respuestas no disponible (HTTP ' + res.status + ')');
-            return [];
-          }
-          const text = await res.text();
-          const datos = parseCSV(text);
-          console.log('Formulario cargado: ' + datos.length + ' registros');
-          return datos;
-        }catch(e){
-          console.warn('No se pudo cargar formulario de respuestas:', e.message);
-          return [];
-        }
-      }
-
-      // NUEVA FUNCIÓN: Completar registro con datos del formulario
-      function completarRegistroDesdeFormulario(registro, datosForm){
-        const registroCompleto = {...registro};
-        
-        if(!datosForm || datosForm.length === 0) return registroCompleto;
-        
-        // Buscar por cédula (más confiable)
-        let coincidencia = null;
-        
-        // 1. Búsqueda por CÉDULA
-        const cedula = (registro.cedula || registro['Cédula'] || registro['cédula'] || '').trim();
-        if(cedula && cedula.length >= 5){
-          coincidencia = datosForm.find(f => {
-            const formCed = (f.cedula || f['Cédula'] || f['cédula'] || '').trim();
-            return formCed === cedula;
-          });
-        }
-        
-        // 2. Si no encuentra por cédula, buscar por PLACA
-        if(!coincidencia){
-          const placa = (registro.placa || registro['Placa'] || '').trim().toUpperCase();
-          if(placa && placa.length >= 4){
-            coincidencia = datosForm.find(f => {
-              const formPlaca = (f.placa || f['Placa'] || '').trim().toUpperCase();
-              return formPlaca === placa;
-            });
-          }
-        }
-        
-        // 3. Si no encuentra por placa, buscar por CONDUCTOR
-        if(!coincidencia){
-          const conductor = (registro.conductor || registro['Conductor'] || '').trim().toUpperCase();
-          if(conductor && conductor.length >= 5){
-            coincidencia = datosForm.find(f => {
-              const formConductor = (f.conductor || f['Conductor'] || '').trim().toUpperCase();
-              return formConductor === conductor || formConductor.includes(conductor);
-            });
-          }
-        }
-        
-        // Si encontró coincidencia, llenar campos vacíos
-        if(coincidencia){
-          const camposMapeo = {
-            'transportadora': ['transportadora', 'Transportadora'],
-            'conductor': ['conductor', 'Conductor'],
-            'cedula': ['cedula', 'Cédula', 'cédula'],
-            'placa': ['placa', 'Placa'],
-            'destino': ['destino', 'Destino'],
-            'producto': ['producto a cargar', 'Producto a cargar', 'producto', 'Producto'],
-            'fecha': ['fecha planificada de cargue', 'Fecha planificada de cargue', 'fecha', 'Fecha'],
-            'evidencia': ['evidencia estado carrocería', 'Evidencia estado carrocería', 'evidencia', 'Evidencia']
-          };
-          
-          // Llenar cada campo
-          for(let campoLocal in camposMapeo){
-            const valoresActuales = (registroCompleto[campoLocal] || registroCompleto[Object.values(camposMapeo[campoLocal])[0]] || '').trim();
-            
-            // Solo llenar si el campo está vacío o muy corto
-            if(!valoresActuales || valoresActuales.length < 2){
-              // Buscar en el formulario con cualquiera de las variantes de nombre
-              for(let variante of camposMapeo[campoLocal]){
-                const valorFormulario = (coincidencia[variante] || '').trim();
-                if(valorFormulario && valorFormulario.length > 0){
-                  registroCompleto[campoLocal] = valorFormulario;
-                  break;
-                }
-              }
-            }
-          }
-        }
-        
-        return registroCompleto;
-      }
-
       function parseCSV(text){
         const rows=[];
+        
+        // Dividir por líneas
         const lines = text.replace(/\r/g,'').split('\n');
         if(lines.length < 2) return rows;
         
+        // Primera línea es el header
         const headerLine = lines[0];
         
+        // Parser robusto para CSV con comillas
         function parseCSVLine(line) {
           const values = [];
           let current = '';
@@ -257,6 +217,7 @@
           return values;
         }
         
+        // Contar campos esperados
         const headerValues = parseCSVLine(headerLine);
         const expectedFields = headerValues.length;
         
@@ -268,140 +229,153 @@
           headers.push(clean);
         });
         
+        console.log('Headers:', headers);
+        console.log('Campos esperados:', expectedFields);
+        
+        // Función para detectar si una línea es continuación de un registro
+        // Una línea es CONTINUACIÓN si:
+        // 1. Comienza con espacios
+        // 2. Es una URL
+        // 3. Es completamente vacía
+        // 4. Contiene patrones de datos secundarios (destinos, productos conocidos)
+        // 5. Tiene formato de email o número sin comas
+        function isContinuationLine(line) {
+          if(!line || !line.trim()) return true;
+          if(/^\s/.test(line)) return true;
+          if(/^https?:\/\//.test(line.trim())) return true;
+          if(/@/.test(line)) return true; // email
+          
+          // Patrones comunes de continuación
+          const continuationKeywords = [
+            'METIONINA', 'GRANIZO', 'MAIZ', 'SORGO', 'FINCA', 'CARGO', 'LINEAS',
+            'CARNE', 'POLLO', 'HUESO', 'ALIMENTO', 'PRODUCTO', 'BUEN', 'BIEN',
+            'BOGOTA', 'MEDELLIN', 'CALI', 'BARRANQUILLA', 'CARTAGENA',
+            'AVENIDA', 'CARRERA', 'CALLE', 'DIRECCION', 'VIA',
+            'A:', 'PARA:', 'EN:', 'DE:', 'DEL:', 'DESDE:', 'HACIA:'
+          ];
+          
+          const trimmed = line.trim().toUpperCase();
+          for(let kw of continuationKeywords) {
+            if(trimmed.startsWith(kw)) return true;
+          }
+          
+          // Si no tiene commas, probablemente es continuación
+          let commaCount = 0;
+          let inQuotes = false;
+          for(let i = 0; i < line.length; i++) {
+            const char = line[i];
+            const nextChar = line[i + 1];
+            if(char === '"') {
+              if(inQuotes && nextChar === '"') {
+                i++;
+              } else {
+                inQuotes = !inQuotes;
+              }
+            } else if(char === ',' && !inQuotes) {
+              commaCount++;
+            }
+          }
+          
+          // Si tiene menos de 2 comas, probablemente es continuación
+          return commaCount < 2;
+        }
+        
+        // Procesar líneas agrupando inteligentemente
         let i = 1;
+        let registrosValidos = 0;
+        
         while(i < lines.length) {
-          const currentLine = lines[i];
-          
-          if(!currentLine || !currentLine.trim()) {
+          // Buscar inicio de registro válido (línea que NO es continuación)
+          if(isContinuationLine(lines[i])) {
             i++;
             continue;
           }
           
-          if(/^\s/.test(currentLine) || /^https?:\/\//.test(currentLine.trim())) {
-            i++;
-            continue;
-          }
-          
-          let line = currentLine;
+          let line = lines[i];
           let values = parseCSVLine(line);
           
+          // Si no tiene suficientes campos, agrupar con líneas de continuación
           while(values.length < expectedFields && i + 1 < lines.length) {
             const nextLine = lines[i + 1];
             
-            if(!nextLine || !nextLine.trim()) {
-              i++;
-              continue;
-            }
-            
-            if(/^\s/.test(nextLine)) {
-              i++;
-              if(nextLine.trim()) {
-                line += '\n' + nextLine;
-                values = parseCSVLine(line);
-              }
-              continue;
-            }
-            
-            if(/^https?:\/\//.test(nextLine.trim())) {
-              i++;
-              line += '\n' + nextLine;
-              values = parseCSVLine(line);
-              continue;
-            }
-            
-            if(/^\d{6,}/.test(nextLine.trim())) {
-              i++;
-              line += '\n' + nextLine;
-              values = parseCSVLine(line);
-              continue;
-            }
-            
-            if(/^[A-Z]{2,3}\d{3,4}/.test(nextLine.trim())) {
-              i++;
-              line += '\n' + nextLine;
-              values = parseCSVLine(line);
-              continue;
-            }
-            
-            if(!nextLine.includes(',') || nextLine.split(',').length === 1) {
-              i++;
-              line += '\n' + nextLine;
-              values = parseCSVLine(line);
-              continue;
-            }
-            
-            const nextCommas = (nextLine.match(/,/g) || []).length;
-            if(nextCommas >= expectedFields - 2) {
+            // Si la siguiente línea NO es continuación, parar
+            if(!isContinuationLine(nextLine)) {
               break;
             }
             
             i++;
-            if(nextLine.trim()) {
+            if(nextLine && nextLine.trim()) {
               line += '\n' + nextLine;
               values = parseCSVLine(line);
             }
           }
           
+          // Limpiar y normalizar valores
           for(let j = 0; j < values.length; j++) {
             let val = values[j].trim();
             val = val.replace(/^"|"$/g, '').trim();
             values[j] = val;
           }
           
+          // Asegurar cantidad correcta de campos
           while(values.length < expectedFields) {
             values.push('');
           }
           values = values.slice(0, expectedFields);
           
+          // Crear objeto
           const obj = {};
           for(let j = 0; j < headers.length; j++) {
             obj[headers[j]] = values[j] || '';
           }
           
-          // CAMBIO: Aceptar TODOS los registros (incluso con 1 solo campo)
-          // Solo rechazar líneas completamente vacías
-          const tieneAlgo = Object.values(obj).some(v => {
-            const trimmed = (v || '').trim();
-            return trimmed.length > 0 && 
-                   !trimmed.match(/^https?:|google|drive|docs|sheet/i) &&
-                   trimmed !== '—';
-          });
-          
-          if(tieneAlgo) {
+          // SIEMPRE agregar el registro, aunque esté incompleto
+          // El renderTabla se encargará de recuperar los campos
+          const firstField = headers[0];
+          if(obj[firstField] && obj[firstField].trim()) {
             rows.push(obj);
+            registrosValidos++;
           }
           
           i++;
         }
         
+        console.log(`✓ REGISTROS PARSEADOS: ${registrosValidos}`);
         return rows;
       }
-
       function obtenerFechaISO(valor){
-        if(!valor) return null;
-        valor = valor.trim().split(' ')[0];
-        if(valor.includes('/')){
-          const [d,m,y] = valor.split('/');
-          return new Date(y, m-1, d);
-        }
-        if(valor.match(/^\d{4}-\d{2}-\d{2}$/)){
-          const [y,m,d] = valor.split('-');
-          return new Date(y, m-1, d);
-        }
-        return null;
-      }
+  if(!valor) return null;
 
-      // Reemplazar la función renderTabla() completa por:
+  // quitar hora
+  valor = valor.trim().split(' ')[0];
+
+  // DD/MM/YYYY
+  if(valor.includes('/')){
+    const [d,m,y] = valor.split('/');
+    return new Date(y, m-1, d);
+  }
+
+  // YYYY-MM-DD
+  if(valor.match(/^\d{4}-\d{2}-\d{2}$/)){
+    const [y,m,d] = valor.split('-');
+    return new Date(y, m-1, d);
+  }
+
+  return null;
+}
+
 
 function renderTabla(datos){
   tablaBody.innerHTML = '';
 
   if(!datos.length){
-    tablaBody.innerHTML = '<tr><td colspan="10" class="empty">No hay datos</td></tr>';
+    tablaBody.innerHTML =
+      '<tr><td colspan="10" class="empty">No hay datos</td></tr>';
     filtradosEl.textContent = '0';
     return;
   }
 
+  // Invertir orden (más reciente primero)
   const datosInvertidos = Array.from(datos).reverse();
 
   datosInvertidos.forEach((r, displayIndex) => {
@@ -410,156 +384,102 @@ function renderTabla(datos){
     const numeroFila = datos.length - displayIndex;
     tr.setAttribute('data-index', originalIndex);
     
-    function getField(fieldNames) {
-      if(typeof fieldNames === 'string') fieldNames = [fieldNames];
+    // Obtener valores con búsqueda flexible de keys
+    function getField(fieldName) {
+      // Buscar coincidencia directa
+      if(r[fieldName]) return (r[fieldName] || '').trim();
       
-      for(let fieldName of fieldNames) {
-        if(r[fieldName] && r[fieldName].toString().trim().length > 0) {
-          return r[fieldName].toString().trim();
-        }
-        const lower = fieldName.toLowerCase();
-        for(let key in r) {
-          if(key.toLowerCase() === lower && r[key] && r[key].toString().trim().length > 0) {
-            return r[key].toString().trim();
-          }
-        }
-        for(let key in r) {
-          if(key.toLowerCase().includes(lower) && r[key] && r[key].toString().trim().length > 0) {
-            return r[key].toString().trim();
-          }
+      // Buscar coincidencia case-insensitive
+      const lower = fieldName.toLowerCase();
+      for(let key in r) {
+        if(key.toLowerCase() === lower) {
+          return (r[key] || '').trim();
         }
       }
+      
+      // Buscar coincidencia parcial
+      for(let key in r) {
+        if(key.toLowerCase().includes(lower)) {
+          return (r[key] || '').trim();
+        }
+      }
+      
       return '';
     }
     
-    let transportadora = getField(['transportadora', 'Transportadora']);
-    let conductor = getField(['conductor', 'Conductor']);
-    let cedula = getField(['cedula', 'cédula', 'Cedula', 'Cédula']);
-    let placa = getField(['placa', 'Placa']);
-    let destino = getField(['destino', 'Destino']);
-    let producto = getField(['producto a cargar', 'Producto a cargar', 'producto', 'Producto']);
-    let fecha = getField(['fecha planificada de cargue', 'Fecha planificada de cargue', 'fecha', 'Fecha']);
-    let evidencia = getField(['evidencia estado carrocería', 'Evidencia estado carrocería', 'evidencia', 'Evidencia']);
+    let transportadora = getField('transportadora');
+    let conductor = getField('conductor');
+    let cedula = getField('cedula') || getField('cédula');
+    let placa = getField('placa');
+    let destino = getField('destino');
+    let producto = getField('producto');
+    let fecha = getField('fecha');
+    let evidencia = getField('evidencia');
     
-    const allText = Object.values(r).join('\n');
-    const allTextUpper = allText.toUpperCase();
-    
-    // PASO 1: COMPLETAR DESDE FORMULARIO DE RESPUESTAS (PRIORIDAD MÁXIMA)
-    // ❌ ELIMINADO - YA SE HACE EN cargarDatos()
-    
-    // PASO 2: BÚSQUEDAS HEURÍSTICAS (Solo si siguen vacíos)
-    
-    // CÉDULA
-    if(!cedula || cedula.length < 5){
-      const cedulaRegex = /\b(\d{6,15}(?:[.-]?\d+)*)\b/;
-      const match = allText.match(cedulaRegex);
-      if(match && match[1] && match[1].length >= 6) {
-        cedula = match[1].replace(/[.-\s]/g, '').substring(0, 15);
-      }
-    }
-    cedula = cedula.replace(/^https?.*$/i, '').trim();
-    
-    // PLACA
-    if(!placa || placa.length < 4){
-      const placaRegex = /\b([A-Z]{2,3}[\s\-]?\d{3,4})\b/;
-      const match = allText.match(placaRegex);
-      if(match && match[1]) {
-        placa = match[1].replace(/[\s\-]/g, '').toUpperCase();
-      } else {
-        const fallbackRegex = /([A-Z]{2,4}\d{2,4})/;
-        const fallbackMatch = allText.match(fallbackRegex);
-        if(fallbackMatch && fallbackMatch[1]) {
-          placa = fallbackMatch[1].toUpperCase();
-        }
-      }
-    }
-    placa = placa.replace(/^https?.*$/i, '').trim().toUpperCase();
-    
-    // TRANSPORTADORA
-    if(!transportadora || transportadora.length < 3){
-      const transportadoras = ['TRANSOLICAR', 'TRANSPORTE', 'LINEAS', 'CARGO', 'CARGA', 'ENVIOS', 'LOGISTICA', 'INTEGRAL', 'EXPRESS', 'FLEX', 'COORDINADORA', 'INTERLOGISTICA'];
-      for(let t of transportadoras) {
-        if(allTextUpper.includes(t)) {
-          const regex = new RegExp(`\\b${t}[\\s\\w]*`, 'i');
-          const match = allText.match(regex);
-          if(match) {
-            transportadora = match[0].trim().substring(0, 60);
-            break;
+    // LÓGICA DE RECUPERACIÓN: Si los datos están en el primer campo separados por saltos de línea
+    if(!conductor && !cedula && !placa && transportadora.includes('\n')) {
+      const partes = transportadora.split('\n').filter(p => p.trim());
+      if(partes.length > 1) {
+        transportadora = partes[0].trim();
+        
+        // Procesar líneas restantes para extraer campos
+        for(let i = 1; i < partes.length; i++) {
+          const part = partes[i].trim();
+          
+          // Skip URLs y continuaciones conocidas
+          if(/^https?:\/\//.test(part) || /^METIONINA|^GRANIZO|^MAIZ|^SORGO|^FINCA|^CARGO/i.test(part)) {
+            continue;
+          }
+          
+          // Detectar cédula (dígitos solos)
+          if(!cedula && /^\d{6,15}$/.test(part.replace(/[-.\s]/g, ''))) {
+            cedula = part;
+          }
+          // Detectar placa (3 letras + 3 números)
+          else if(!placa && /^[A-Z]{2,3}\d{3,4}$/.test(part.replace(/[-\s]/g, ''))) {
+            placa = part;
+          }
+          // Detectar conductor (nombres largos, palabras con espacios)
+          else if(!conductor && part.length > 5 && /^[A-ZÁÉÍÓÚa-záéíóú\s]+$/.test(part)) {
+            conductor = part;
+          }
+          // Detectar destino (ciudades, ubicaciones)
+          else if(!destino && part.length > 3 && !part.match(/^\d/)) {
+            destino = part;
+          }
+          // Detectar producto si aún está vacío
+          else if(!producto && part.length > 2) {
+            producto = part;
           }
         }
       }
     }
-    transportadora = transportadora.replace(/^https?.*$/i, '').trim().toUpperCase();
     
-    // CONDUCTOR
-    if(!conductor || conductor.length < 4){
-      const nombreRegex = /\b([A-Z][a-záéíóúñ]+(?:\s+[A-Z][a-záéíóúñ]+)+)\b/g;
-      const matches = allText.match(nombreRegex);
-      
-      if(matches && matches.length > 0) {
-        for(let m of matches) {
-          if(m.length > 4 && m.length < 120 && 
-             !m.match(/GOOGLE|DRIVE|DOCS|HTTP|SHEET|EDITOR|COPY|PRINT|EXPORT|SPREADSHEET|TIMESTAMP/i) &&
-             !m.includes('@')) {
-            conductor = m.trim();
-            break;
-          }
-        }
+    // Si aún faltan campos, intentar recuperar desde los datos concatenados
+    if(!conductor && transportadora.includes(' ') && !transportadora.match(/^[A-Z]{2,}/)) {
+      // Si transportadora parece un nombre de persona, es probablemente el conductor
+      if(/[a-zA-ZÁÉÍÓÚáéíóú]{4,}/.test(transportadora)) {
+        conductor = transportadora;
+        transportadora = '';
       }
     }
-    conductor = conductor.replace(/^https?.*$/i, '').trim().toUpperCase();
     
-    // DESTINO
-    if(!destino || destino.length < 3){
-      const ciudades = ['BOGOTA', 'MEDELLIN', 'CALI', 'BARRANQUILLA', 'CARTAGENA', 'FINCA', 'BUGA', 'VILLA', 'ALMACEN', 'BODEGA', 'SANTA', 'POPAYAN', 'IBAGUE', 'MANIZALES', 'PEREIRA', 'ARMENIA', 'BUCARAMANGA', 'CUCUTA', 'VALLEDUPAR', 'MONTERIA', 'SINCELEJO', 'TUNJA', 'FLORENCIA', 'NEIVA', 'RIOHACHA', 'LETICIA', 'PASTO', 'VILLAVICENCIO', 'YOPAL', 'ARAUCA', 'INIRIDA', 'GUAINIA', 'HONDA', 'ESPINAL', 'TOLIMA', 'QUIBDO', 'PALMIRA', 'SOACHA'];
-      for(let c of ciudades) {
-        if(allTextUpper.includes(c)) {
-          const regex = new RegExp(`\\b${c}\\b`, 'i');
-          const match = allText.match(regex);
-          if(match) {
-            destino = match[0].toUpperCase();
-            break;
-          }
-        }
-      }
+    // Validar si la cédula está donde debería ser la transportadora
+    if(!cedula && /^\d{4,}/.test(transportadora)) {
+      cedula = transportadora.split(' ')[0];
+      transportadora = transportadora.substring(cedula.length).trim();
     }
-    destino = destino.replace(/^https?.*$/i, '').trim().toUpperCase();
     
-    // PRODUCTO
-    if(!producto || producto.length < 3){
-      const productos = ['METIONINA', 'GRANIZO', 'MAIZ', 'SORGO', 'CARNE', 'POLLO', 'HUESO', 'ALIMENTO', 'LIQUIDO', 'CONCENTRADO', 'HARINA', 'TRIGO', 'ARROZ', 'LECHE', 'QUESO', 'MARGARINA', 'ACEITE', 'AZUCAR', 'SAL', 'ESPECIAS', 'PIENSO', 'RACION', 'BALANCEADO', 'PREMIX', 'ADITIVO', 'VITAMIN', 'MINERAL', 'SUPLEMENTO', 'FORRAJE', 'SILAJE', 'PASTA', 'PELLET', 'NUTRIMENTO', 'RACIÓN'];
-      for(let p of productos) {
-        if(allTextUpper.includes(p)) {
-          const regex = new RegExp(`\\b${p}\\b`, 'i');
-          const match = allText.match(regex);
-          if(match) {
-            producto = match[0].toUpperCase();
-            break;
-          }
-        }
-      }
-    }
-    producto = producto.replace(/^https?.*$/i, '').trim().toUpperCase();
+    // Convertir a mayúsculas
+    transportadora = transportadora.toUpperCase().trim();
+    conductor = conductor.toUpperCase().trim();
+    cedula = cedula.toUpperCase().trim();
+    placa = placa.toUpperCase().trim();
+    destino = destino.toUpperCase().trim();
+    producto = producto.toUpperCase().trim();
+    fecha = fecha.toUpperCase().trim();
     
-    // FECHA
-    if(!fecha || fecha.length < 8){
-      const fechaRegex = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})/;
-      const match = allText.match(fechaRegex);
-      if(match && match[1]) {
-        fecha = match[1];
-      }
-    }
-    fecha = fecha.replace(/^https?.*$/i, '').trim();
-    
-    // EVIDENCIA
-    if(!evidencia || !evidencia.includes('http')) {
-      const urlRegex = /(https?:\/\/[^\s]+)/;
-      const match = allText.match(urlRegex);
-      if(match && match[1]) {
-        evidencia = match[1];
-      }
-    }
-
+    // Crear botón para evidencia
     let btnEvidencia = '';
     if(evidencia && (evidencia.includes('google.com') || evidencia.includes('drive.google.com') || evidencia.includes('http'))) {
       btnEvidencia = `<button class="btn-ver-evidencia" data-url="${evidencia}" style="background:#4CAF50;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">👁️ Ver</button>`;
@@ -571,13 +491,13 @@ function renderTabla(datos){
 
     tr.innerHTML = `
       <td>${numeroFila}</td>
-      <td>${transportadora || '—'}</td>
-      <td>${conductor || '—'}</td>
-      <td>${cedula || '—'}</td>
-      <td>${placa || '—'}</td>
-      <td>${destino || '—'}</td>
-      <td>${producto || '—'}</td>
-      <td>${fecha || '—'}</td>
+      <td>${transportadora || '⚠️'}</td>
+      <td>${conductor || '⚠️'}</td>
+      <td>${cedula || '⚠️'}</td>
+      <td>${placa || '⚠️'}</td>
+      <td>${destino || '⚠️'}</td>
+      <td>${producto || '⚠️'}</td>
+      <td>${fecha || '⚠️'}</td>
       <td>${btnEvidencia}</td>
       <td>${btnEliminar}</td>
     `;
@@ -585,6 +505,7 @@ function renderTabla(datos){
     tablaBody.appendChild(tr);
   });
 
+  // Agregar listeners
   document.querySelectorAll('.btn-ver-evidencia').forEach(btn => {
     btn.addEventListener('click', function() {
       abrirEvidencia(this.getAttribute('data-url'));
@@ -594,16 +515,8 @@ function renderTabla(datos){
   document.querySelectorAll('.btn-eliminar-registro').forEach(btn => {
     btn.addEventListener('click', function() {
       const index = parseInt(this.getAttribute('data-index'));
-      const pass = prompt('🔐 Ingresa la contraseña de administrador para eliminar:');
-      
-      if(pass === null) return;
-      
-      if(pass === ADMIN_PASS) {
-        if(confirm('¿Estás seguro de que deseas eliminar este registro?')) {
-          eliminarRegistro(index);
-        }
-      } else {
-        alert('❌ Contraseña incorrecta');
+      if(confirm('¿Estás seguro de que deseas eliminar este registro?')) {
+        eliminarRegistro(index);
       }
     });
   });
@@ -613,56 +526,64 @@ function renderTabla(datos){
 }
 
       function aplicarFiltros(){
-        const t = fTransport.value.trim().toLowerCase();
-        const p = fPlaca.value.trim().toLowerCase();
-        const c = fConductor.value.trim().toLowerCase();
-        const f = fproducto.value.trim().toLowerCase();
-        const fecha = fFecha.value;
+  const t = fTransport.value.trim().toLowerCase();
+  const p = fPlaca.value.trim().toLowerCase();
+  const c = fConductor.value.trim().toLowerCase();
+  const f = fproducto.value.trim().toLowerCase();
+  const fecha = fFecha.value;
 
-        const filtrados = datosOriginales.filter(r=>{
-          const transportadora = (r.transportadora || r['Transportadora'] || '').toLowerCase();
-          const placa = (r.placa || r['Placa'] || '').toLowerCase();
-          const conductor = (r.conductor || r['Conductor'] || '').toLowerCase();
-          
-          let producto = '';
-          for(let key in r) {
-            if(key.toLowerCase().includes('producto')) {
-              producto = (r[key] || '').toLowerCase();
-              break;
-            }
-          }
-          
-          let fechaRegistro = '';
-          for(let key in r) {
-            if(key.toLowerCase().includes('fecha')) {
-              fechaRegistro = (r[key] || '');
-              break;
-            }
-          }
-
-          if(t && !transportadora.includes(t)) return false;
-          if(p && !placa.includes(p)) return false;
-          if(c && !conductor.includes(c)) return false;
-          if(f && !producto.includes(f)) return false;
-          
-          if(fecha){
-            const fechaObj = obtenerFechaISO(fechaRegistro);
-            const [y, m, d] = fecha.split('-');
-            const fechaFiltro = new Date(y, m - 1, d);
-            if(!fechaObj) return false;
-            if(
-              fechaObj.getFullYear() !== fechaFiltro.getFullYear() ||
-              fechaObj.getMonth() !== fechaFiltro.getMonth() ||
-              fechaObj.getDate() !== fechaFiltro.getDate()
-            ){
-              return false;
-            }
-          }
-          return true;
-        });
-
-        renderTabla(filtrados);
+  const filtrados = datosOriginales.filter(r=>{
+    // Normalizar valores y comparar
+    const transportadora = (r.transportadora || r['Transportadora'] || '').toLowerCase();
+    const placa = (r.placa || r['Placa'] || '').toLowerCase();
+    const conductor = (r.conductor || r['Conductor'] || '').toLowerCase();
+    
+    // Buscar producto
+    let producto = '';
+    for(let key in r) {
+      if(key.toLowerCase().includes('producto')) {
+        producto = (r[key] || '').toLowerCase();
+        break;
       }
+    }
+    
+    // Buscar fecha en todas las variantes
+    let fechaRegistro = '';
+    for(let key in r) {
+      if(key.toLowerCase().includes('fecha')) {
+        fechaRegistro = (r[key] || '');
+        break;
+      }
+    }
+
+    if(t && !transportadora.includes(t)) return false;
+    if(p && !placa.includes(p)) return false;
+    if(c && !conductor.includes(c)) return false;
+    if(f && !producto.includes(f)) return false;
+    
+    if(fecha){
+      const fechaObj = obtenerFechaISO(fechaRegistro);
+      const [y, m, d] = fecha.split('-');
+      const fechaFiltro = new Date(y, m - 1, d);
+
+      if(!fechaObj) return false;
+
+      if(
+        fechaObj.getFullYear() !== fechaFiltro.getFullYear() ||
+        fechaObj.getMonth() !== fechaFiltro.getMonth() ||
+        fechaObj.getDate() !== fechaFiltro.getDate()
+      ){
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  renderTabla(filtrados);
+}
+
+    
 
       function descargarXLS(){ 
         if(!datosOriginales.length){ 
@@ -680,6 +601,7 @@ function renderTabla(datos){
           let placa = (r.placa || r['Placa'] || '').trim().toUpperCase(); 
           let destino = (r.destino || r['Destino'] || '').trim().toUpperCase(); 
           
+          // Buscar producto con variantes correctas
           let producto = '';
           for(let key in r) {
             if(key.toLowerCase().includes('producto')) {
@@ -688,6 +610,7 @@ function renderTabla(datos){
             }
           }
           
+          // Buscar fecha con variantes correctas
           let fecha = '';
           for(let key in r) {
             if(key.toLowerCase().includes('fecha')) {
@@ -696,6 +619,7 @@ function renderTabla(datos){
             }
           }
           
+          // Buscar evidencia con variantes correctas
           let evidencia = '';
           for(let key in r) {
             if(key.toLowerCase().includes('evidencia')) {
@@ -715,77 +639,199 @@ function renderTabla(datos){
         URL.revokeObjectURL(a.href); 
       }
 
-      function notificarNuevoRegistro(registro){
-        const id = generarIDRegistro(registro);
-        if(registrosNotificados.has(id)) return;
-        registrosNotificados.add(id);
-        
-        let mensaje = `Nuevo registro despachado:\n`;
-        mensaje += `🚛 Transportadora: ${registro.transportadora || '—'}\n`;
-        mensaje += `🧑🏼‍✈️ Conductor: ${registro.conductor || '—'}\n`;
-        mensaje += `🪪 Cédula: ${registro.cedula || '—'}\n`;
-        mensaje += `⛔ Placa: ${registro.placa || '—'}\n`;
-        mensaje += `📍 Destino: ${registro.destino || '—'}\n`;
-        mensaje += `📦 Producto: ${registro.producto || '—'}\n`;
-        mensaje += `📅 Fecha: ${registro.fecha || '—'}\n`;
-        mensaje += `📸 Evidencia: ${registro.evidencia || '—'}`;
-        
-        if(Notification.permission === 'granted'){
-          new Notification('Nuevo registro despachado', {
-            body: mensaje,
-            icon: 'https://image.url/icon.png'
-          });
-        }else{
-          console.log('Nuevo registro:', mensaje);
-        }
-      }
-
-      function generarIDRegistro(registro){
-        const cedula = (registro.cedula || registro['Cédula'] || '').trim();
-        const placa = (registro.placa || registro['Placa'] || '').trim();
-        return `${cedula}|${placa}`;
-      }
-
-      function abrirEvidencia(url){
-        if(!url || url.trim() === '#' || url.includes('javascript:void(0)')) return;
-        window.open(url, '_blank');
-      }
-
-      function eliminarRegistro(index){
-        if(index < 0 || index >= datosOriginales.length) return;
-        datosOriginales.splice(index, 1);
-        renderTabla(datosOriginales);
-      }
-
-      function solicitarPermisoNotificaciones(){
-        if(Notification.permission === 'granted') return;
-        if(Notification.permission !== 'denied'){
-          Notification.requestPermission().then(permission => {
-            if(permission === 'granted'){
-              console.log('Permiso de notificaciones concedido');
-            }else{
-              console.log('Permiso de notificaciones denegado');
-            }
-          });
-        }
-      }
-
       const PROXY_TEMPLATES = [
         'https://api.allorigins.win/raw?url={url}',
         'https://thingproxy.freeboard.io/fetch/{url}',
         'https://api.codetabs.com/v1/proxy?quest={url}'
       ];
+      let lastCSVText = '';
+      const forceProxyEl = document.getElementById('forceProxy');
+
+      // Restore user preference
+      try{ const pref = localStorage.getItem('useProxy'); if(pref==='1') forceProxyEl.checked = true; }catch(e){}
+
+      forceProxyEl.addEventListener('change', ()=>{ try{ localStorage.setItem('useProxy', forceProxyEl.checked ? '1' : '0'); }catch(e){} });
 
       function buildProxyUrls(){
         return PROXY_TEMPLATES.map(t => t.replace('{url}', encodeURIComponent(URL_CSV)) + '&t=' + Date.now());
       }
 
-      const forceProxyEl = document.getElementById('forceProxy');
-      try{ const pref = localStorage.getItem('useProxy'); if(pref==='1') forceProxyEl.checked = true; }catch(e){}
-      forceProxyEl.addEventListener('change', ()=>{ try{ localStorage.setItem('useProxy', forceProxyEl.checked ? '1' : '0'); }catch(e){} });
-
-      let lastCSVText = null;
+ function appendRows(rows){
+  rows.forEach((r, i) => {
+    const tr = document.createElement('tr');
+    
+    // Obtener valores con búsqueda flexible de keys
+    function getField(fieldName) {
+      // Buscar coincidencia directa
+      if(r[fieldName]) return (r[fieldName] || '').trim();
       
+      // Buscar coincidencia case-insensitive
+      const lower = fieldName.toLowerCase();
+      for(let key in r) {
+        if(key.toLowerCase() === lower) {
+          return (r[key] || '').trim();
+        }
+      }
+      
+      // Buscar coincidencia parcial
+      for(let key in r) {
+        if(key.toLowerCase().includes(lower)) {
+          return (r[key] || '').trim();
+        }
+      }
+      
+      return '';
+    }
+    
+    let transportadora = getField('transportadora');
+    let conductor = getField('conductor');
+    let cedula = getField('cedula') || getField('cédula');
+    let placa = getField('placa');
+    let destino = getField('destino');
+    let producto = getField('producto');
+    let fecha = getField('fecha');
+    let evidencia = getField('evidencia');
+    
+    // LÓGICA DE RECUPERACIÓN: Si los datos están en el primer campo separados por saltos de línea
+    if(!conductor && !cedula && !placa && transportadora.includes('\n')) {
+      const partes = transportadora.split('\n').filter(p => p.trim());
+      if(partes.length > 1) {
+        transportadora = partes[0].trim();
+        
+        // Procesar líneas restantes para extraer campos
+        for(let i = 1; i < partes.length; i++) {
+          const part = partes[i].trim();
+          
+          // Skip URLs y continuaciones conocidas
+          if(/^https?:\/\//.test(part) || /^METIONINA|^GRANIZO|^MAIZ|^SORGO|^FINCA|^CARGO/i.test(part)) {
+            continue;
+          }
+          
+          // Detectar cédula (dígitos solos)
+          if(!cedula && /^\d{6,15}$/.test(part.replace(/[-.\s]/g, ''))) {
+            cedula = part;
+          }
+          // Detectar placa (3 letras + 3 números)
+          else if(!placa && /^[A-Z]{2,3}\d{3,4}$/.test(part.replace(/[-\s]/g, ''))) {
+            placa = part;
+          }
+          // Detectar conductor (nombres largos, palabras con espacios)
+          else if(!conductor && part.length > 5 && /^[A-ZÁÉÍÓÚa-záéíóú\s]+$/.test(part)) {
+            conductor = part;
+          }
+          // Detectar destino (ciudades, ubicaciones)
+          else if(!destino && part.length > 3 && !part.match(/^\d/)) {
+            destino = part;
+          }
+          // Detectar producto si aún está vacío
+          else if(!producto && part.length > 2) {
+            producto = part;
+          }
+        }
+      }
+    }
+    
+    // Si aún faltan campos, intentar recuperar desde los datos concatenados
+    if(!conductor && transportadora.includes(' ') && !transportadora.match(/^[A-Z]{2,}/)) {
+      // Si transportadora parece un nombre de persona, es probablemente el conductor
+      if(/[a-zA-ZÁÉÍÓÚáéíóú]{4,}/.test(transportadora)) {
+        conductor = transportadora;
+        transportadora = '';
+      }
+    }
+    
+    // Validar si la cédula está donde debería ser la transportadora
+    if(!cedula && /^\d{4,}/.test(transportadora)) {
+      cedula = transportadora.split(' ')[0];
+      transportadora = transportadora.substring(cedula.length).trim();
+    }
+    
+    // Convertir a mayúsculas
+    transportadora = transportadora.toUpperCase().trim();
+    conductor = conductor.toUpperCase().trim();
+    cedula = cedula.toUpperCase().trim();
+    placa = placa.toUpperCase().trim();
+    destino = destino.toUpperCase().trim();
+    producto = producto.toUpperCase().trim();
+    fecha = fecha.toUpperCase().trim();
+
+    // Crear botón para evidencia
+    let btnEvidencia = '';
+    if(evidencia && (evidencia.includes('google.com') || evidencia.includes('drive.google.com') || evidencia.includes('http'))) {
+      btnEvidencia = `<button class="btn-ver-evidencia" data-url="${evidencia}" style="background:#4CAF50;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">👁️ Ver</button>`;
+    } else {
+      btnEvidencia = '<span style="color:#999;font-size:12px;">Sin archivo</span>';
+    }
+
+    // Botón para eliminar
+    let btnEliminar = `<button class="btn-eliminar-registro" data-index="${datosOriginales.length - 1}" style="background:#d32f2f;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">🗑️ Eliminar</button>`;
+
+    tr.innerHTML = `
+      <td>${datosOriginales.length}</td>
+      <td>${transportadora}</td>
+      <td>${conductor}</td>
+      <td>${cedula}</td>
+      <td>${placa}</td>
+      <td>${destino}</td>
+      <td>${producto}</td>
+      <td>${fecha}</td>
+      <td>${btnEvidencia}</td>
+      <td>${btnEliminar}</td>
+    `;
+
+    tr.classList.add('new-row');
+    tablaBody.appendChild(tr);
+
+    setTimeout(() => tr.classList.add('highlight'), 50);
+    setTimeout(() => tr.classList.remove('highlight'), 3500);
+  });
+
+  // Agregar listeners a botones de evidencia
+  document.querySelectorAll('.btn-ver-evidencia').forEach(btn => {
+    btn.addEventListener('click', function() {
+      abrirEvidencia(this.getAttribute('data-url'));
+    });
+  });
+
+  // Agregar listeners a botones de eliminar
+  document.querySelectorAll('.btn-eliminar-registro').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const index = parseInt(this.getAttribute('data-index'));
+      if(confirm('¿Estás seguro de que deseas eliminar este registro?')) {
+        eliminarRegistro(index);
+      }
+    });
+  });
+
+  registrosEl.textContent = datosOriginales.length;
+  filtradosEl.textContent = datosOriginales.length;
+}
+
+function generarIDRegistro(r){
+  return `${r.fecha}|${r.placa}|${r.transportadora}`.toLowerCase();
+}
+
+function solicitarPermisoNotificaciones(){
+  if (!("Notification" in window)) return;
+
+  if (Notification.permission === "default") {
+    Notification.requestPermission();
+  }
+}
+
+function notificarNuevoRegistro(registro){
+  if (!("Notification" in window)) return;
+  if (Notification.permission !== "granted") return;
+
+  new Notification("📦 Nuevo despacho registrado", {
+    body:
+      `🚛 ${registro.transportadora || ''}\n` +
+      `⛔ Placa: ${registro.placa || ''}\n` +
+      `📦 Producto: ${registro.producto || ''}`,
+    icon: "https://cdn-icons-png.flaticon.com/512/1995/1995574.png"
+  });
+}
+
       async function cargarDatos(){
         estadoEl.textContent = 'Actualizando…';
         errorMsg.style.display = 'none';
@@ -802,26 +848,20 @@ function renderTabla(datos){
           return { text, took };
         }
 
+        // Build attempt list (direct + multiple proxies)
         const attempts = [];
         if(!useProxy){ attempts.push(URL_CSV + '&t=' + Date.now()); }
         attempts.push(...buildProxyUrls());
 
-        let finalText = null; 
-        let lastErr = null; 
-        let tried = [];
-        
+        let finalText = null; let lastErr = null; let tookMs = null; let tried = [];
         for(const url of attempts){
           tried.push(url);
           try{
-            console.log('Intentando cargar: ' + url.substring(0, 80) + '...');
             const { text, took } = await tryFetch(url);
             finalText = text;
-            console.log('✓ Datos cargados exitosamente (' + took + 'ms)');
+            tookMs = took;
             break;
-          }catch(e){ 
-            lastErr = e; 
-            console.warn('❌ Intento fallido:', e.message); 
-          }
+          }catch(e){ lastErr = e; console.warn('fetch attempt failed', e); }
         }
 
         if(finalText === null){
@@ -829,177 +869,74 @@ function renderTabla(datos){
           errorMsg.innerHTML = 'Error: ' + (lastErr && lastErr.message ? lastErr.message : lastErr) + ' — Comprueba que la hoja esté publicada.' +
             '<br><small>Intentos: ' + tried.map(u=>u.split('?')[0]).join(', ') + '</small>';
           errorMsg.style.display = 'block';
-          console.error('No se pudo cargar los datos después de ' + attempts.length + ' intentos');
           return;
         }
 
+        // If data unchanged, just update timestamp and status
         if(lastCSVText === finalText){
-          console.log('Los datos no han cambiado');
           ultimaEl.textContent = new Date().toLocaleTimeString();
           estadoEl.textContent = '✓ OK';
           return;
         }
 
-        console.log('Procesando datos...');
-        
-        // Cargar formulario de respuestas (sin bloquear si falla)
-        datosFormulario = await cargarFormularioRespuestas();
-        console.log('Datos del formulario disponibles: ' + datosFormulario.length);
-
+        // New or first-time data
         if(!lastCSVText){
-          console.log('Primera carga - parseando CSV');
+          // full parse and render
           datosOriginales = parseCSV(finalText);
-          console.log('Registros parseados: ' + datosOriginales.length);
+          console.log('Campos recibidos:', Object.keys(datosOriginales[0] || {}));
+          console.log('Total campos:', Object.keys(datosOriginales[0] || {}).length);
+          console.log('Total registros:', datosOriginales.length);
           
-          // COMPLETAR REGISTROS CON DATOS DEL FORMULARIO
-          if(datosFormulario.length > 0){
-            console.log('Completando registros desde formulario...');
-            datosOriginales = datosOriginales.map(r => {
-              const registroCompleto = {...r};
-              
-              // Buscar por TRANSPORTADORA
-              let formCoincidencia = null;
-              const transportadora = (r.transportadora || r['Transportadora'] || '').trim().toUpperCase();
-              
-              if(transportadora && transportadora.length > 3){
-                formCoincidencia = datosFormulario.find(f => {
-                  const formTrans = (f.transportadora || f['Transportadora'] || '').trim().toUpperCase();
-                  const formTransClean = formTrans.replace(/^"|"$/g, '').replace(/[""]/g, '').trim();
-                  const transClean = transportadora.replace(/^"|"$/g, '').replace(/[""]/g, '').trim();
-                  return formTransClean === transClean || formTransClean.includes(transClean);
-                });
-              }
-              
-              // Si encontró, llenar todos los campos vacíos
-              if(formCoincidencia){
-                console.log('✓ Completando: ' + transportadora);
-                
-                // Conductor
-                const conductorActual = (r.conductor || r['Conductor'] || '').trim();
-                if(!conductorActual || conductorActual.length < 3){
-                  let formConductor = (formCoincidencia.conductor || formCoincidencia['Conductor'] || '').trim();
-                  formConductor = formConductor.replace(/^"|"$/g, '').replace(/[""]/g, '').trim();
-                  if(formConductor && formConductor.length > 3) {
-                    registroCompleto.conductor = formConductor;
-                    delete registroCompleto['Conductor'];
-                  }
-                }
-                
-                // Cédula
-                const cedulaActual = (r.cedula || r['Cédula'] || r['cédula'] || '').trim();
-                if(!cedulaActual || cedulaActual.length < 5){
-                  let formCedula = (formCoincidencia.cedula || formCoincidencia['Cédula'] || formCoincidencia['cédula'] || '').trim();
-                  formCedula = formCedula.replace(/^"|"$/g, '').replace(/[""]/g, '').trim();
-                  if(formCedula && formCedula.length >= 5) {
-                    registroCompleto.cedula = formCedula;
-                    delete registroCompleto['Cédula'];
-                    delete registroCompleto['cédula'];
-                  }
-                }
-                
-                // Placa
-                const placaActual = (r.placa || r['Placa'] || '').trim();
-                if(!placaActual || placaActual.length < 4){
-                  let formPlaca = (formCoincidencia.placa || formCoincidencia['Placa'] || '').trim();
-                  formPlaca = formPlaca.replace(/^"|"$/g, '').replace(/[""]/g, '').trim().toUpperCase();
-                  if(formPlaca && formPlaca.length >= 4) {
-                    registroCompleto.placa = formPlaca;
-                    delete registroCompleto['Placa'];
-                  }
-                }
-                
-                // Destino
-                const destinoActual = (r.destino || r['Destino'] || '').trim();
-                if(!destinoActual || destinoActual.length < 3){
-                  let formDestino = (formCoincidencia.destino || formCoincidencia['Destino'] || '').trim();
-                  formDestino = formDestino.replace(/^"|"$/g, '').replace(/[""]/g, '').trim();
-                  if(formDestino && formDestino.length >= 3) {
-                    registroCompleto.destino = formDestino;
-                    delete registroCompleto['Destino'];
-                  }
-                }
-                
-                // Producto
-                const productoActual = (r.producto || r['Producto'] || r['producto a cargar'] || r['Producto a cargar'] || '').trim();
-                if(!productoActual || productoActual.length < 3){
-                  let formProducto = (formCoincidencia['producto a cargar'] || formCoincidencia['Producto a cargar'] || formCoincidencia.producto || formCoincidencia['Producto'] || '').trim();
-                  formProducto = formProducto.replace(/^"|"$/g, '').replace(/[""]/g, '').trim();
-                  if(formProducto && formProducto.length >= 3) {
-                    registroCompleto.producto = formProducto;
-                    delete registroCompleto['Producto'];
-                    delete registroCompleto['Producto a cargar'];
-                  }
-                }
-                
-                // Fecha
-                const fechaActual = (r.fecha || r['Fecha'] || r['fecha planificada de cargue'] || r['Fecha planificada de cargue'] || '').trim();
-                if(!fechaActual || fechaActual.length < 8){
-                  let formFecha = (formCoincidencia['fecha planificada de cargue'] || formCoincidencia['Fecha planificada de cargue'] || formCoincidencia.fecha || formCoincidencia['Fecha'] || '').trim();
-                  formFecha = formFecha.replace(/^"|"$/g, '').replace(/[""]/g, '').trim();
-                  if(formFecha && formFecha.length >= 8) {
-                    registroCompleto.fecha = formFecha;
-                    delete registroCompleto['Fecha'];
-                    delete registroCompleto['Fecha planificada de cargue'];
-                  }
-                }
-                
-                // Evidencia
-                const evidenciaActual = (r.evidencia || r['Evidencia'] || r['evidencia estado carrocería'] || r['Evidencia estado carrocería'] || '').trim();
-                if(!evidenciaActual || !evidenciaActual.includes('http')){
-                  let formEvidencia = (formCoincidencia['evidencia estado carrocería'] || formCoincidencia['Evidencia estado carrocería'] || formCoincidencia.evidencia || formCoincidencia['Evidencia'] || '').trim();
-                  formEvidencia = formEvidencia.replace(/^"|"$/g, '').replace(/[""]/g, '').trim();
-                  if(formEvidencia && formEvidencia.includes('http')) {
-                    registroCompleto.evidencia = formEvidencia;
-                    delete registroCompleto['Evidencia'];
-                    delete registroCompleto['Evidencia estado carrocería'];
-                  }
-                }
-              }
-              
-              return registroCompleto;
-            });
-            console.log('✓ Todos los registros completados');
+          // Buscar y mostrar registro 359 específicamente
+          if(datosOriginales.length >= 359) {
+            console.log('\n=== REGISTRO 359 COMPLETO (INCOMPLETO) ===');
+            const reg359 = datosOriginales[358]; // índice 358 = registro 359
+            console.log('Todas las claves y valores:');
+            for(let key in reg359) {
+              console.log(`  "${key}": "${reg359[key]}"`);
+            }
           }
           
-          datosOriginales.forEach(r => {
-            const id = generarIDRegistro(r);
-            registrosNotificados.add(id);
-          });
-          
-          console.log('Renderizando ' + datosOriginales.length + ' registros');
+          console.log('\n=== PRIMEROS 5 REGISTROS ===');
+          for(let i = 0; i < Math.min(5, datosOriginales.length); i++) {
+            const r = datosOriginales[i];
+            console.log(`\nRegistro ${i+1}:`);
+            for(let key in r) {
+              console.log(`  "${key}": "${r[key]}"`);
+            }
+          }
+           datosOriginales.forEach(r => {
+    const id = generarIDRegistro(r);
+    registrosNotificados.add(id); // marcar como ya vistos
+  });
           renderTabla(datosOriginales);
         } else {
-          console.log('Actualización incremental');
+          // incremental: compute new lines and append
           const newLines = finalText.trim().split('\n');
           const oldLines = lastCSVText.trim().split('\n');
-          
           if(newLines.length > oldLines.length){
-            console.log('Nuevos registros detectados');
             const headers = newLines[0];
             const added = newLines.slice(oldLines.length).join('\n');
             const partialCSV = headers + '\n' + added;
-            let nuevas = parseCSV(partialCSV);
-            
-            // COMPLETAR NUEVOS REGISTROS
-            if(datosFormulario.length > 0){
-              nuevas = nuevas.map(r => completarRegistroDesdeFormulario(r, datosFormulario));
-            }
-            
-            nuevas.forEach(r => {
-              const id = generarIDRegistro(r);
-              if (!registrosNotificados.has(id)) {
-                registrosNotificados.add(id);
-                notificarNuevoRegistro(r);
-              }
-              datosOriginales.push(r);
-            });
-            renderTabla(datosOriginales);
+            const nuevas = parseCSV(partialCSV);
+            // append to datosOriginales and table
+nuevas.forEach(r => {
+  const id = generarIDRegistro(r);
+
+  if (!registrosNotificados.has(id)) {
+    registrosNotificados.add(id);
+    notificarNuevoRegistro(r); // 🔔 solo una vez
+  }
+
+  datosOriginales.push(r);
+});
+
+appendRows(nuevas);
+
+
           } else {
-            console.log('Datos no cambiados, re-renderizando');
+            // different but same number of lines (edited rows) — re-render full
             datosOriginales = parseCSV(finalText);
-            if(datosFormulario.length > 0){
-              datosOriginales = datosOriginales.map(r => completarRegistroDesdeFormulario(r, datosFormulario));
-            }
             renderTabla(datosOriginales);
           }
         }
@@ -1007,26 +944,63 @@ function renderTabla(datos){
         lastCSVText = finalText;
         ultimaEl.textContent = new Date().toLocaleTimeString();
         estadoEl.textContent = '✓ OK';
-        console.log('✓ Carga completada');
       }
 
-      btnFiltrar.addEventListener('click', aplicarFiltros);
-      btnLimpiar.addEventListener('click', ()=>{
-        fTransport.value='';
-        fPlaca.value='';
-        fConductor.value='';
-        fproducto.value='';
-        fFecha.value='';
-        renderTabla(datosOriginales);
-      });
-      btnXLS.addEventListener('click', descargarXLS);
-      btnActualizar.addEventListener('click', cargarDatos);
+      btnFiltrar.addEventListener('click',aplicarFiltros);
+btnLimpiar.addEventListener('click',()=>{
+  fTransport.value='';
+  fPlaca.value='';
+  fConductor.value='';
+  fproducto.value='';
+  fFecha.value='';
+  renderTabla(datosOriginales);
+});
+     
+      btnXLS.addEventListener('click',descargarXLS);
+      btnActualizar.addEventListener('click',cargarDatos);
+
+      // Función para eliminar registros
+      function eliminarRegistro(index) {
+        if(index >= 0 && index < datosOriginales.length) {
+          datosOriginales.splice(index, 1);
+          renderTabla(datosOriginales);
+        }
+      }
+
+      // Función para abrir evidencia en nueva pestaña
+      function abrirEvidencia(url) {
+        if(!url || !url.trim()) {
+          alert('No hay archivo disponible');
+          return;
+        }
+
+        url = url.trim();
+
+        // Detectar tipo de archivo
+        const esGoogleDrive = url.includes('drive.google.com') || url.includes('docs.google.com/open');
+
+        // Si es Google Drive, extraer ID y generar URL de preview
+        let urlFinal = url;
+        if(esGoogleDrive && url.includes('id=')) {
+          const id = url.split('id=')[1].split('&')[0];
+          urlFinal = `https://drive.google.com/file/d/${id}/preview`;
+        }
+
+        // Abrir en nueva pestaña
+        window.open(urlFinal, '_blank', 'noopener,noreferrer');
+      }
 
       solicitarPermisoNotificaciones();
-      console.log('🚀 Dashboard iniciado');
       cargarDatos();
       setInterval(cargarDatos, 5000);
+
     </script>
   </body>
 </html>
 
+  
+
+ 
+   
+       
+         
